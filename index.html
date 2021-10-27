@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
+		integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+	<script language="Javascript" src="./js/toolbars.js">
+	</script>
+	<script language="JavaScript">
+
+		var toolbarNumber = 16; 
+		var okToRoll = true;
+
+		var playing = false;
+		var gameEmpty = true;	
+		var biggestRowNum = 5;	
+		var biggestColNum = 5;	
+		var theScore = 0;		
+		var gameValue = 0;		
+		var repeatWatch = true;	
+		var repeatThreshold = 3;	
+		var numRepeats = 0;
+		var lastPlay = 1;		
+		var numRows = 5;
+		var numCols = 5;
+		var numActRows = 5;
+		var numActCols = 5;
+		var theMatrix = new makeArray2(numRows, numCols);
+		var activeCol = new Array();
+		var activeRow = new Array();
+		var rowMinAr = new Array();	
+		rowMinAr[0] = 0;			
+		for (var i = 1; i <= 5; i++) {
+			activeCol[i] = true;
+			activeRow[i] = true;
+		}
+		var tellCols = true;
+		var tellRows = true;
+		var colStrategy = new Array();
+		for (i = 1; i <= numCols; i++) colStrategy[i] = 0;
+		var rowStrategy = new Array();
+		for (i = 1; i <= numRows; i++) rowStrategy[i] = 0;
+		
+		// ***********************HANDLE ERROR **************
+		function handleError() {
+			// alert(count);
+		}
+
+		// *****************MATH ROUTINES *******************
+		function roundEight(theNumber) {
+			var x = (Math.round(100000000 * theNumber)) / 100000000;
+			return (x);
+		}
+		function roundNine(theNumber) {
+			var x = (Math.round(1000000000 * theNumber)) / 1000000000;
+			return (x);
+		}
+
+		function evaluate(theString) {
+			return (eval(theString));
+		}
+
+		// *****************PLAYING ROUTINES **************
+		function playTheGame() {
+			readMatrix();
+			if (gameEmpty) document.theDiagram.Comment.value = "No ha introducido ningun pagos en la matriz de pagos." + "\n\r" + "Introduzcalos pagos y pruebe de nuevo.";
+			else {
+				playing = true;
+				theScore = 0;
+				numRepeats = 0;
+				var xyz = saddlePoint();
+				reduceByDominance();
+				xyz = solveGame();
+				document.theDiagram.status.value = "Resultado = " + theScore + " Le toca a usted. (Clic en una accion renglon.)"
+			} // game not empty
+		} // playTheGame
+
+
+
+		function stopTheGame() {
+			playing = false;
+			if (theScore > 0) {
+				document.theDiagram.status.value = "Gano usted";
+				if (gameValue > 0) document.theDiagram.status.value += ". No es gran cosa. Este juego es parcial en su favor. ";
+				else if (gameValue == 0) document.theDiagram.status.value += ". Bastante bien. Este juego es justo.";
+				else if (gameValue < 0) document.theDiagram.status.value += ". Excelente. Este juego es parcial en mi favor.";
+			}
+			else if (theScore == 0) {
+				document.theDiagram.status.value = "Es un empate";
+				if (gameValue > 0) document.theDiagram.status.value += ".No impresionante. Este juego es parcial en su favor.";
+				else if (gameValue == 0) document.theDiagram.status.value += ". Bien. Este juego es justo.";
+				else if (gameValue < 0) document.theDiagram.status.value += ". Excelente. Este juego es parcial en mi favor.";
+			}
+
+			else if (theScore < 0) {
+				document.theDiagram.status.value = "Usted perdio";
+				if (gameValue > 0) document.theDiagram.status.value += ". Mal hecho. Este juego es parcial en su favor.";
+				else if (gameValue == 0) document.theDiagram.status.value += ". No impresionante. Este juego es justo.";
+				else if (gameValue < 0) document.theDiagram.status.value += ". No hay sorpresa. Este juego es parcial en mi favor.";
+			}
+		} // stopTheGame
+
+		function playThis() {
+			if (playing) {
+				var i = playThis.arguments[0];
+				if (i > biggestRowNum) document.theDiagram.status.value = "No pueda hacer eso!";
+				else {
+					var theResponse = 1; // temporary
+					// first deal with repeated moves by row player
+					if (i == lastPlay) numRepeats++;
+					else numRepeats = 0;
+					lastPlay = i;
+					if (numRepeats >= repeatThreshold) {
+						var min = theMatrix[i][1];
+						for (var j = 2; j <= biggestColNum; j++) {
+							if (theMatrix[i][j] < min) {
+								min = theMatrix[i][j];
+								theResponse = j;
+							}
+						}
+					}
+					else
+					// play according to optimal strategy
+					{
+						var theProb = 0;
+						var rnd = 0;
+						while (rnd == 0) {
+							rnd = Math.random();
+						} // don't want exactly 0...
+						var j = 0;
+						while ((rnd > theProb) && (j < numCols)) {
+							j++;
+							theProb += colStrategy[j];
+						}
+						theResponse = j;
+					}
+					var thePayoff = theMatrix[i][theResponse];
+					theScore += thePayoff;
+					document.theDiagram.status.value = "Mi accion fue " + theResponse + ". Pago = " + roundEight(thePayoff) + ". Resultado = " + roundEight(theScore) + ". Le toca a usted. ";
+				}
+			} // if playing
+			else {
+				document.theDiagram.Comment.value += "\n\r" + "Pulse 'Juega' para jugar conra mi.";
+			}
+		} // playThis
+
+		// *******************PIVOT **********************
+		function pivot(InMatrix, rows, cols, theRow, theCol) {
+			// alert("theRow = " + theRow + "theCol" + theCol);
+			var thePivot = InMatrix[theRow][theCol];
+			for (var i = 1; i <= cols; i++) {
+				InMatrix[theRow][i] = InMatrix[theRow][i] / thePivot;
+			} // i
+			// now pivot
+			for (var i = 1; i <= rows; i++) {
+				if ((i != theRow) && (InMatrix[i][theCol] != 0)) {
+					var factr = InMatrix[i][theCol];
+					for (var j = 1; j <= cols; j++) {
+						InMatrix[i][j] = InMatrix[i][j] - factr * InMatrix[theRow][j];
+					} // j
+				}
+			} // i
+			// now round all answers
+			for (var i = 1; i <= rows; i++) {
+				for (var j = 1; j <= cols; j++) {
+					InMatrix[i][j] = roundNine(InMatrix[i][j]);
+				} // j
+			} // i
+			return (InMatrix);
+		}
+
+		// ****************SIMPLEX METHOD****************
+		function simplexMethod(InMatrix, rows, cols) {
+			var negIndicator = false;
+			var testRatio = new Array();
+			var theRow = 0;
+			for (var i = 1; i <= cols - 1; i++) {
+				if (InMatrix[rows][i] < 0) {
+					var theCol = i;
+					negIndicator = true;
+				}
+			} // i
+			while (negIndicator) {
+				for (var i = 1; i <= rows - 1; i++) {
+					testRatio[i] = -1;
+					if (InMatrix[i][theCol] > 0) {
+						testRatio[i] = InMatrix[i][cols] / InMatrix[i][theCol];
+					}
+				} // i
+				var minRatio = 10000000000000;
+				for (var i = 1; i <= rows - 1; i++) {
+					if ((testRatio[i] >= 0) && (testRatio[i] <= minRatio)) {
+						minRatio = testRatio[i];
+						theRow = i;
+					}
+				} // i
+				InMatrix = pivot(InMatrix, rows, cols, theRow, theCol);
+				negIndicator = false;
+				for (var i = 1; i <= cols - 1; i++) {
+					if (InMatrix[rows][i] < 0) {
+						theCol = i;
+						negIndicator = true;
+					}
+				} // i
+			} // while negIndicator
+			return (InMatrix);
+		} // simplexMethod
+
+		// ********************SOLVING A GAME***************
+		function solveGame() {
+			if (gameEmpty) document.theDiagram.Comment.value = "No ha introducido ningun pagos en la matriz de pagos." + "\n\r" + "Introduzcalos pagos y pruebe de nuevo.";
+			else if (numActRows == 1) {
+				// this was taken care of in the saddle point routine
+			}
+			else {
+				var rows = numActRows + 1;
+				var cols = numActCols + numActRows + 2;
+				theTableau = new makeArray2(rows, cols);
+				// first get the biggest negative number in the active game
+				var k = 0;
+				for (var i = 1; i <= 5; i++) {
+					for (var j = 1; j <= 5; j++) {
+						if ((activeRow[i]) && (activeCol[j])) {
+							if (theMatrix[i][j] < k) k = theMatrix[i][j];
+						}
+					} // j
+				} // i
+				k = -k;
+				// its a positive number
+				// now set up the tableau
+				var rowNum = 0;
+
+				for (i = 1; i <= rows; i++) {
+					rowNum++;
+					if (i <= numActRows) {
+						var foundRow = false;
+						while (!foundRow) {
+							if (activeRow[rowNum]) {
+								foundRow = true;
+							}
+							else rowNum++;
+						} // while not found
+						var colNum = 1;
+						for (j = 1; j <= cols; j++) {
+							foundEntry = false;
+							while (!foundEntry) {
+								// alert ("j = " + j + "colNum = " + colNum);
+								if ((j <= numActCols) && (activeCol[colNum])) {
+									theTableau[i][j] = theMatrix[rowNum][colNum] + k;
+									colNum++;
+									foundEntry = true;
+									// alert ("i = " + i + "j = " + j + "rowNum = " + rowNum + "colNum = " + colNum 	);
+								}
+
+								else if ((j <= numActCols) && (!activeCol[colNum])) {
+									colNum++;
+								}
+								else if ((j > numActCols) && (j == numActCols + i)) {
+									foundEntry = true;
+									theTableau[i][j] = 1;
+								}
+								else if ((j > numActCols) && (j != numActCols + i)) {
+									foundEntry = true;
+									theTableau[i][j] = 0;
+								}
+								if ((j == cols) && (i < rows)) theTableau[i][j] = 1;
+							} // found entry
+						} // j
+					} // if i lt num rows
+					if (i == rows) {
+						for (j = 1; j <= numActCols; j++) theTableau[i][j] = -1;
+						for (j = numActCols + 1; j <= cols; j++) theTableau[i][j] = 0;
+						theTableau[i][cols - 1] = 1;
+					}
+				} // i
+
+				// present results -- deBug
+				var deBug0 = false;
+				if (deBug0) {
+					for (i = 1; i <= rows; i++) {
+						document.theDiagram.Comment.value = document.theDiagram.Comment.value + "\r"
+						for (j = 1; j <= cols; j++) {
+							document.theDiagram.Comment.value = document.theDiagram.Comment.value + theTableau[i][j] + " ";
+						}
+					}
+					document.theDiagram.Comment.value = document.theDiagram.Comment.value + "\r" + "num rows = " + rows + "numcols = " + cols;
+				} // deBug
+
+
+				// now do the simplex method
+				theTableau = simplexMethod(theTableau, rows, cols);
+
+				// present results -- deBug
+				var deBug = false;
+				if (deBug) {
+					for (i = 1; i <= rows; i++) {
+						document.theDiagram.Comment.value = document.theDiagram.Comment.value + "\r"
+						for (j = 1; j <= cols; j++) {
+							document.theDiagram.Comment.value = document.theDiagram.Comment.value + theTableau[i][j] + " ";
+						}
+					}
+					document.theDiagram.Comment.value = document.theDiagram.Comment.value + "\r" + "num rows = " + rows + "numcols = " + cols;
+				} // deBug
+
+				// now the column strategy
+				// get the solutions from the tableau
+				var solution = new Array();
+				var theCol = 0; // the column in the simplex method tableau
+				sumSolutions = 0;
+				for (j = 1; j <= 5; j++) {
+					if (!activeCol[j]) {
+						solution[j] = 0;
+					}
+					else {
+						var thisIsPivotCol = true;
+						theCol++;
+						var num = 0;
+						for (i = 1; i <= rows; i++) {
+							if ((theTableau[i][theCol] != 0) && (theTableau[i][theCol] != 1)) thisIsPivotCol = false;
+							else num += theTableau[i][theCol];
+							if (theTableau[i][theCol] == 1) var i0 = i;
+						}
+						if (num != 1) thisIsPivotCol = false;
+						if (thisIsPivotCol) solution[j] = theTableau[i0][cols];
+						else solution[j] = 0;
+						sumSolutions += solution[j];
+					}
+				}
+				for (j = 1; j <= 5; j++) {
+					colStrategy[j] = roundEight(solution[j] / sumSolutions);
+				}
+				/*Cambiar columnas*/
+				if (tellCols) {
+					document.theDiagram.Comment.value = document.theDiagram.Comment.value + "\r" + "La optima estrategia columna es:" + "\r" + "[";
+					for (j = 1; j <= 5; j++) {
+						document.theDiagram.Comment.value = document.theDiagram.Comment.value + colStrategy[j] + " ";
+						insertarResultadoTabla(j, 2, colStrategy[j]);
+					}
+					document.theDiagram.Comment.value += "]";
+				} // end if tell all
+				// ***************
+				// The row strategy
+
+				num = 0;
+				for (i = numActCols + 1; i <= cols - 2; i++) {
+					num += theTableau[rows][i];
+				}
+				for (i = numActCols + 1; i <= cols - 2; i++) {
+					rowStrategy[i - numActCols] = roundEight(theTableau[rows][i] / num);
+				}
+
+				var debug3 = false;
+				if (debug3) {
+					document.theDiagram.Comment.value = document.theDiagram.Comment.value + "\r" + "The Optimal Row Strategy is:" + "\r" + "[";
+					for (j = 1; j <= 5; j++) {
+						document.theDiagram.Comment.value = document.theDiagram.Comment.value + rowStrategy[j] + " ";
+					}
+					document.theDiagram.Comment.value += "]";
+				} // end if tell all
+
+
+				// now insert zeros for inactive
+				for (i = 1; i <= 5; i++) {
+					if (!activeRow[i]) {
+						for (j = 5; j >= i + 1; j--) {
+							rowStrategy[j] = rowStrategy[j - 1];
+						}
+						rowStrategy[i] = 0;
+					} // if inactive row
+				}
+				/*Cambiar filas*/
+				if (tellRows) {
+					document.theDiagram.Comment.value = document.theDiagram.Comment.value + "\r" + "La optima estrategia renglon es:" + "\r" + "[";
+					for (j = 1; j <= 5; j++) {
+						document.theDiagram.Comment.value = document.theDiagram.Comment.value + rowStrategy[j] + " ";
+						insertarResultadoTabla(j, 1, rowStrategy[j]);
+					}
+					document.theDiagram.Comment.value += "]";
+				} // end if tell rows
+				gameValue = roundEight(1 / theTableau[rows][cols] - k);
+				if ((tellRows) || (tellCols)) document.theDiagram.Comment.value += "\r" + "El valor del juego es " + gameValue + ".";
+			} // if num rows active bigger than 1		
+		} // solveGame
+
+		// *******************UTILITIES**********************
+
+		function clearForms() {
+			for (var i = 0; i <= numRows * numCols - 1; i++) document.theDiagram[i].value = "";
+			document.theDiagram.Comment.value = "";
+			document.theDiagram.status.value = '';
+
+			gameValue = 0;
+			for (var i = 1; i <= 5; i++) {
+				activateImage("row", i);
+				activateImage("col", i);
+			}
+		}
+
+		function stripSpaces(InString) {
+			OutString = "";
+			for (Count = 0; Count < InString.length; Count++) {
+				TempChar = InString.substring(Count, Count + 1);
+				if (TempChar != " ")
+					OutString = OutString + TempChar;
+			}
+			return (OutString);
+		}
+
+		function parser(InString, Sep) {
+			NumSeps = 1;
+			for (Count = 1; Count < InString.length; Count++) {
+				if (InString.charAt(Count) == Sep)
+					NumSeps++;
+			}
+			parse = new makeArray(NumSeps);
+			Start = 0; Count = 1; ParseMark = 0;
+			LoopCtrl = 1;
+			while (LoopCtrl == 1) {
+				ParseMark = InString.indexOf(Sep, ParseMark);
+				TestMark = ParseMark + 0;
+				if ((TestMark == 0) || (TestMark == -1)) {
+					parse[Count] = InString.substring(Start, InString.length);
+					LoopCtrl = 0;
+					break;
+				}
+				parse[Count] = InString.substring(Start, ParseMark);
+				Start = ParseMark + 1;
+				ParseMark = Start;
+				Count++;
+			}
+			parse[0] = Count;
+			return (parse);
+		}
+
+		function makeArray2(X, Y) {
+			var count;
+			this.length = X + 1;
+			for (var count = 1; count <= X + 1; count++)
+				// to allow starting at 1
+				this[count] = new makeArray(Y);
+		} // makeArray2
+
+		function makeArray(Y) {
+			var count;
+			this.length = Y + 1;
+			for (var count = 1; count <= Y + 1; count++)
+				this[count] = 0;
+		} // makeArray
+
+		function makeFillArray(Y, fill) {
+			var count;
+			this.length = Y + 1;
+			for (var count = 1; count <= Y + 1; count++)
+				this[count] = fill;
+		} // makeArray
+
+
+		// *****************SADDLE POINT FINDER**********
+		function saddlePoint() {
+			if (gameEmpty) document.theDiagram.Comment.value = "No ha introducido ningun pagos en la matriz de pagos." + "\n\r" + "Introduzcalos pagos y pruebe de nuevo.";
+			else {
+				// returns a little array [0/1, x-coord, y-coord, value]
+				// 1 indicates found a saddle point
+				tellCols = document.theDiagram.showColButton.checked;
+				tellRows = document.theDiagram.showRowButton.checked;
+				var ans = new Array();
+				ans[0] = 0;
+				var theRow = 0;
+				var theCol = 0;
+				for (var i = 1; i <= 5; i++) {
+					// alert(i + " " + ans[0]);
+					if ((ans[0] == 0) && (activeRow[i])) {
+						rowMinAr[0] = 0;
+						var rowMin = 9999999999999999999;
+						for (var j = 1; j <= 5; j++) {
+							if (activeCol[j]) {
+								if (theMatrix[i][j] < rowMin) {
+									rowMin = theMatrix[i][j];
+									theCol = j;
+								}
+							} // if j active
+						} // j
+						// we now have the row min
+						// check to see if it is a column max
+						rowMinAr[0] = 1;
+						rowMinAr[1] = theCol;
+						// now check for others of the same size
+						for (var q = 1; q <= 5; q++) {
+							if ((activeCol[q]) && (q != theCol) && (theMatrix[i][q] == rowMin)) {
+								rowMinAr[0] += 1;
+								rowMinAr[rowMinAr[0]] = q
+							} // end if multiple min detected
+						} // q
+
+						theRow = i;
+
+						// now check the column of each row minimum found in that row
+						for (var mincount = 1; mincount <= rowMinAr[0]; mincount++) {
+							ans[0] = 1; 	// still a candidate
+							theCol = rowMinAr[mincount];
+							for (var k = 0; k <= 5; k++) {
+								if (activeRow[k]) {
+									if (theMatrix[k][theCol] > rowMin) {
+										ans[0] = 0;
+									}
+								} // if k active
+							} // k
+							if (ans[0] == 1) mincount = rowMinAr[0]; // exit this loop
+						} // mincount
+						// if survived, we are done
+						ans[1] = theRow;
+						ans[2] = theCol;
+						ans[3] = theMatrix[theRow][theCol];
+						gameValue = ans[3]; // global
+					} // if active i
+				} // i
+
+				// now set up the strategy matrices
+				if (ans[0] == 1) {
+					for (var i = 1; i <= numRows; i++) rowStrategy[i] = 0;
+					rowStrategy[ans[1]] = 1;
+					for (var i = 1; i <= numCols; i++) colStrategy[i] = 0;
+					colStrategy[ans[2]] = 1;
+				}
+				// now deactivate non-saddle point strategies
+				if (ans[0] == 1) {
+					numActCols = 1;
+					numActRows = 1;
+					for (var i = 1; i <= 5; i++) {
+						if ((activeCol[i]) && (i != theCol)) {
+							activeCol[i] = false;
+							if (tellCols) deactivateImage("col", i);
+						}
+						if ((activeRow[i]) && (i != theRow)) {
+							activeRow[i] = false;
+							if (tellRows) deactivateImage("row", i);
+						}
+					}
+					console.log(theRow);
+					console.log(theCol);
+					if ((tellCols) && (tellRows)) document.theDiagram.Comment.value = "Este juego es estrictamente determinado y tiene un valor de " + gameValue + "." + "\r" + "Las estrategias optimas son los no indicados por 'X.'";
+					else if (tellRows) document.theDiagram.Comment.value = "Este juego es estrictamente determinado. La optima estrategia renglon es " + theRow + "." + "\r" + "Para ver la optima estrategia columna y el valor del juego," + "\r" + "cheque 'Muestra estrategias columna' y rehaga este paso.";
+					else if (tellCols) document.theDiagram.Comment.value = "Este juego es estrictamente determinado. La optima estrategia columna es " + theCol + "." + "\r" + "Para ver la optima estrategia renbglon y el valor del juego," + "\r" + "cheque 'Muestra estrategias renglon' y rehaga este paso.";
+				} // if found one
+
+				if (((tellCols) || (tellRows)) && (ans[0] == 0)) document.theDiagram.Comment.value = "Este juego no es estrictamente determinado." + "\r" + "Prueba reduccion por predominio.";
+
+				if ((tellCols == false) && (tellRows == false)) document.theDiagram.Comment.value = "Nada sera mostrado si no checar " + "\r" + "'Muestra estrategias renglon' o 'Muestra estrategias colummna' y rehacer este paso.";
+
+				// document.theDiagram.Comment.value = document.theDiagram.Comment.value  + "\r" + " col = " + ans[1] + " row = "+  ans[2];
+
+				return (ans);
+			} // if not empty
+		} // saddlePoint
+
+		// ************REDUCTION BY DOMINANCE **********
+		function reduceByDominance() {
+			// the effect is simply to determine which columns are still active.
+			// if "tell all" is on it reduces rows and columns; else it reduces columns only
+			if (gameEmpty) document.theDiagram.Comment.value = "No ha introducido ningun pagos en la matriz de pagos." + "\n\r" + "Introduzcalos pagos y pruebe de nuevo.";
+			else {
+				var dominated = true;
+				var domr = false, domc = false;
+				tellCols = document.theDiagram.showColButton.checked;
+				tellRows = document.theDiagram.showRowButton.checked;
+				if ((tellCols == false) && (tellRows == false)) document.theDiagram.Comment.value = "Nada sera mostrado si no checar " + "\r" + "'Muestra estrateiga renglon' o 'Muestra estrateiga colummna' y rehacer este paso.";
+
+				while (dominated) {
+					dominated = false;
+					domr = false;
+					for (var i = 1; i <= numRows; i++) {
+						if (activeRow[i]) {
+							for (var j = 1; j <= numRows; j++) {
+								if ((activeRow[j]) && (j != i)) {
+									domr = true;
+									for (var k = 1; k <= numCols; k++) {
+										if ((theMatrix[i][k] > theMatrix[j][k]) && (activeCol[k])) domr = false;
+									}
+									if ((domr) && (activeRow[i])) {
+										dominated = true;
+										activeRow[i] = false;
+										if (tellRows) deactivateImage("row", i);
+										numActRows -= 1;	// a global variable
+										// alert("deleting row "+i +" numActRows = " + numActRows);
+									} // if dominated
+								} // if j is active;
+							} // j
+						} // if col i is active
+					} // i
+					// now check columns
+					domc = false;
+					for (var i = 1; i <= numCols; i++) {
+						if (activeCol[i]) {
+							for (var j = 1; j <= numCols; j++) {
+								if ((activeCol[j]) && (j != i)) {
+									domc = true;
+									for (var k = 1; k <= numRows; k++) {
+										if ((theMatrix[k][i] < theMatrix[k][j]) && (activeRow[k])) domc = false;
+									}
+									if ((domc) && (activeCol[i])) {
+										dominated = true;
+										activeCol[i] = false;
+										if (tellCols) deactivateImage("col", i);
+										numActCols -= 1;	 // a global variable
+									} // if dominated
+								} // if j is active;
+							} // j
+						} // if col i is active
+					} // i
+				} // while dominated
+
+				if (((tellCols) && (tellRows)) && (numActRows >= 2)) document.theDiagram.Comment.value = "Renglones y columnas dominadas (o vacias) han sido indicadas" + "\r" + "por 'X'.";
+				else if ((tellRows) && (numActRows >= 2)) document.theDiagram.Comment.value = "Renglones dominados (o vacios) han sido indicados por 'X'." + "\r" + "Para ver columnas dominadas, cheque 'Muestra estrategias colummna' y" + "\r" + "rehaga este paso.";
+				else if ((tellCols) && (numActRows >= 2)) document.theDiagram.Comment.value = "Columnas dominados (o vacios) han sido indicados por 'X'." + "\r" + "Para ver renglones dominados, cheque 'Muestra estrategias renglon' y" + "\r" + "rehaga este paso.";
+				if (((numActRows == 1) && (tellCols)) && (tellRows)) {
+					// get value of the game
+					for (i = 1; i <= numRows; i++) {
+						for (j = 1; j <= numCols; j++) {
+							if ((activeRow[i]) && (activeCol[j])) gameValue = theMatrix[i][j];
+						} // j
+					} // i
+					document.theDiagram.Comment.value = "Este juego es estrictamente determinado y tiene un valor de " + gameValue + "." + "\r" + "Las estrategias optimas son los no indicados por 'X.'";
+				}
+			} // if not empty
+		} // reduction
+
+		// *************READ THE MATRIX********************
+		function readMatrix() {
+			// first reset the diagram and icons
+			document.theDiagram.Comment.value = "";
+			for (var i = 1; i <= 5; i++) {
+				activateImage("row", i);
+				activateImage("col", i);
+				activeCol[i] = true;
+				activeRow[i] = true;
+			}
+			// set up and reads the Matrix
+			var count = 0;
+			var j;
+			// first detect the size of the active Matrix
+			var theRowSize = 0;
+			var theColSize = 0;
+			for (i = 1; i <= numRows; i++) {
+				for (j = 1; j <= numCols; j++) {
+					var theString = stripSpaces(document.theDiagram[count].value);
+					if (theString == "") {
+					}
+					else {
+						if (theRowSize < i) theRowSize = i;
+						if (theColSize < j) theColSize = j;
+					}
+					count++;
+				} // j
+			} // i
+			count = 0;
+			for (i = 1; i <= numRows; i++) {
+				for (j = 1; j <= numCols; j++) {
+					theString = stripSpaces(document.theDiagram[count].value);
+					if (theString == "") {
+						theMatrix[i][j] = 0;
+						if ((theRowSize >= i) && (theColSize >= j)) document.theDiagram[count].value = "0";
+					}
+					else {
+						theMatrix[i][j] = evaluate(theString);
+					}
+					// starts numbering at 0
+					count++;
+				} // j
+			} // i
+			// now deactivate unused rows and columns
+			numActRows = theRowSize;		// these are globals
+			numActCols = theColSize;		// these are globals
+			biggestRowNum = theRowSize;	// these are globals
+			biggestColNum = theColSize;		// these are globals
+			for (i = theRowSize + 1; i <= 5; i++) {
+				deactivateImage("row", i);
+				activeRow[i] = false;
+			}
+			for (i = theColSize + 1; i <= 5; i++) {
+				deactivateImage("col", i)
+				activeCol[i] = false;
+			}
+			if (numActRows == 0) gameEmpty = true;
+			else gameEmpty = false;
+		} // readMatrix
+
+
+		// ******************GRAPHICS ROUTINES**************
+		function activateAll() {
+			for (var i = 1; i <= numCols; i++) {
+				activateImage("col", i)
+			}
+			for (i = 1; i <= numRows; i++) {
+				activateImage("row", i)
+			}
+		}
+
+		function mouseOver() {
+			if (playing) {
+				var i = mouseOver.arguments[0];
+				//**********
+				hyperactivateImage("row", i);
+			} // if playing
+		} // mouseOver
+
+		function mouseOut() {
+			if (playing) {
+				var i = mouseOut.arguments[0];
+				//**********
+				if (i > biggestRowNum) deactivateImage("row", i);
+				else if ((activeRow[i]) || (!tellRows)) activateImage("row", i);
+				else if (!activeRow[i]) deactivateImage("row", i);
+			} // if playing
+		} // mouseOver
+
+		function activateImage(row_or_col, number) {
+			if (okToRoll) {
+				var i = number + toolbarNumber;
+				if (row_or_col == "row") i += 4;
+				else i += -1;
+				//document.images[i].src = "icon"+number+"2.gif";
+
+
+				//       	 imgOn = eval(imgName + "on.src");
+
+				//        	 document.theDiagram [imgName].src = imgOn;
+			}
+		}
+
+		function hyperactivateImage(row_or_col, number) {
+			if (okToRoll) {
+				var i = number + toolbarNumber;;
+				if (row_or_col == "row") i += 4;
+				else i += -1;
+				document.images[i].src = "icon" + number + ".gif";
+
+				//    	 imgOn = eval(imgName + "up.src");
+				//   	 document.theDiagram [imgName].src = imgOn;
+			}
+		}
+
+		function deactivateImage(row_or_col, number) {
+			if (okToRoll) {
+				var i = number + toolbarNumber;;
+				if (row_or_col == "row") i += 4;
+				else i += -1;
+				//document.images[i].src =  "iconx.gif";;
+
+				//        imgOff = eval(imgName + "off.src");
+				//        document.theDiagram [imgName].src = imgOff;
+			}
+		}
+
+		function insertarResultadoTabla(promocion, tienda, valor) {
+			switch (promocion) {
+				case 1:
+					if (tienda == 1) {
+						const celda1 = document.getElementById("p11");
+						celda1.textContent = valor;
+					} else {
+						const celda1 = document.getElementById("p12")
+						celda1.textContent = valor;
+					}
+
+					break;
+				case 2:
+					if (tienda == 1) {
+						const celda1 = document.getElementById("p21");
+						celda1.textContent = valor;
+					} else {
+						const celda1 = document.getElementById("p22")
+						celda1.textContent = valor;
+					}
+					break;
+				case 3:
+					if (tienda == 1) {
+						const celda1 = document.getElementById("p31");
+						celda1.textContent = valor;
+					} else {
+						const celda1 = document.getElementById("p32")
+						celda1.textContent = valor;
+					}
+					break;
+				case 4:
+					if (tienda == 1) {
+						const celda1 = document.getElementById("p41");
+						celda1.textContent = valor;
+					} else {
+						const celda1 = document.getElementById("p42")
+						celda1.textContent = valor;
+					}
+					break;
+				case 5:
+					if (tienda == 1) {
+						const celda1 = document.getElementById("p51");
+						celda1.textContent = valor;
+					} else {
+						const celda1 = document.getElementById("p52")
+						celda1.textContent = valor;
+					}
+					break;
+			}
+			//console.log("Promocion"+promocion+"Tienda"+tienda+"Valor"+valor);
+		}
+	</script>
+	<link rel="canonical" href="https://getbootstrap.com/docs/4.0/examples/album/">
+<link href="./css/album.css" rel="stylesheet">
+</head>
+
+<body style="background-color: #a4ac86;">
+	<header>
+		<div class="navbar navbar-dark bg-dark box-shadow">
+		  <div class="container d-flex justify-content-between">
+			<a href="#" class="navbar-brand d-flex align-items-center">			  
+			  <strong>HOME</strong>
+			</a>			
+		  </div>
+		</div>
+	  </header>
+	<center>
+		<form name="theDiagram">
+			<center>
+				<h1>
+					Tendencias
+				</h1>
+				<br>
+				<table cellpadding="0" cellspacing="0"">
+					<tbody>
+						<tr>
+							<td valign=" top">
+					<table>
+						<tbody>
+							<tr>
+								<td></td>
+								<td></td>
+								<td colspan="5" align="center"><h4>TIENDA 2</h4></td>
+							</tr>
+
+							<tr>
+								<td align="center"></td>
+								<td></td>
+								<td align="center">1</td>
+								<td align="center">2</td>
+								<td align="center">3</td>
+								<td align="center">4</td>
+								<td align="center">5</td>
+							</tr>
+							<tr>
+								<td rowspan="5"> <h4>T<br>I<br>E<br>N<br>D<br>A<br>1</h4></td>
+								<td align="center">1</td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string"class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string"class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string"class="form-control"></td>
+							</tr>
+							<tr>
+								<td align="center">2</td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+							</tr>
+							<tr>
+								<td align="center">3</td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+							</tr>
+							<tr>
+								<td align="center">4</td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+							</tr>
+							<tr>
+								<td align="center">4</td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+								<td align="center"><input type="text" size="10" value="" name="string" class="form-control"></td>
+							</tr>
+						</tbody>
+					</table>
+					</td>
+					</tr>
+					</tbody>
+				</table>
+				<input type="checkbox" name="showRowButton" checked="true"
+				style="visibility:hidden;"></td>
+				<input type="checkbox" name="showColButton" checked="true"
+				style="visibility:hidden;"></td>
+					<br>
+				<input type="button" value="Solucionar juego"
+					onclick="readMatrix(); var xyz = saddlePoint(); reduceByDominance(); xyz = solveGame()" class="btn btn-success">
+				<br><br>
+				<table class="table table-bordered" style="width: 700px; border-color: black; border-width: 5px;">
+					<thead>
+						<tr>
+							<th scope="col">Resultado</th>
+							<th scope="col">Tienda1</th>
+							<th scope="col">Tienda2</th>
+						</tr>
+					</thead>
+					<!--Promocion tienda-->
+					<tbody>
+						<tr>
+							<th scope="row">Promocion 1</th>
+							<td id="p11">0</td>
+							<td id="p12">0</td>
+						</tr>
+						<tr>
+							<th scope="row">Promocion 2</th>
+							<td id="p21">0</td>
+							<td id="p22">0</td>
+						</tr>
+						<tr>
+							<th scope="row">Promocion 3</th>
+							<td id="p31">0</td>
+							<td id="p32">0</td>
+						</tr>
+						<tr>
+							<th scope="row">Promocion 4</th>
+							<td id="p41">0</td>
+							<td id="p42">0</td>
+						</tr>
+						<tr>
+							<th scope="row">Promocion 5</th>
+							<td id="p51">0</td>
+							<td id="p52">0</td>
+						</tr>
+					</tbody>
+				</table>
+				<table style="visibility:hidden;">
+					<tbody>
+						<tr>
+							<td><b>RESULTADOS:</b></td>
+							<td colspan="3"><textarea rows="8" cols="70" value="" name="Comment"
+									style="visibility:hidden;"></textarea></td>
+						</tr>
+					</tbody>
+				</table>
+			</center>
+
+		</form>
+
+
+</body>
+
+</html>
